@@ -1,6 +1,7 @@
 package io.quarkiverse.zeebe;
 
 import static io.quarkiverse.zeebe.ZeebeDotNames.*;
+import static io.quarkiverse.zeebe.devservices.ZeebeDevServiceProcessor.PROP_ZEEBE_GATEWAY_ADDRESS;
 import static io.quarkus.deployment.annotations.ExecutionTime.RUNTIME_INIT;
 import static io.quarkus.deployment.annotations.ExecutionTime.STATIC_INIT;
 import static org.jboss.jandex.AnnotationTarget.Kind.METHOD;
@@ -57,6 +58,7 @@ import io.quarkus.deployment.builditem.nativeimage.NativeImageResourceBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.metrics.MetricsCapabilityBuildItem;
 import io.quarkus.gizmo.*;
+import io.quarkus.runtime.configuration.ConfigUtils;
 import io.quarkus.runtime.metrics.MetricsFactory;
 import io.quarkus.runtime.util.HashUtil;
 import io.quarkus.smallrye.health.deployment.spi.HealthBuildItem;
@@ -81,6 +83,14 @@ public class ZeebeProcessor {
         @Override
         public boolean getAsBoolean() {
             return config.tracing.enabled;
+        }
+    }
+
+    static class BrokerEnabled implements BooleanSupplier {
+
+        @Override
+        public boolean getAsBoolean() {
+            return ConfigUtils.isPropertyPresent(PROP_ZEEBE_GATEWAY_ADDRESS);
         }
     }
 
@@ -294,7 +304,7 @@ public class ZeebeProcessor {
         ssl.produce(new ExtensionSslNativeSupportBuildItem(FEATURE_NAME));
     }
 
-    @BuildStep
+    @BuildStep(onlyIf = BrokerEnabled.class)
     void addHealthCheck(ZeebeBuildTimeConfig config, BuildProducer<HealthBuildItem> healthChecks) {
         healthChecks.produce(new HealthBuildItem(ZeebeHealthCheck.class.getName(), config.health.enabled));
         healthChecks.produce(new HealthBuildItem(ZeebeTopologyHealthCheck.class.getName(), config.health.enabled));
@@ -307,7 +317,7 @@ public class ZeebeProcessor {
         recorder.setResources(resources.getResources(), workers.getWorkers());
     }
 
-    @BuildStep
+    @BuildStep(onlyIf = BrokerEnabled.class)
     @Record(RUNTIME_INIT)
     void runtimeInitConfiguration(ZeebeRecorder recorder, ZeebeRuntimeConfig runtimeConfig) {
         recorder.init(runtimeConfig);
