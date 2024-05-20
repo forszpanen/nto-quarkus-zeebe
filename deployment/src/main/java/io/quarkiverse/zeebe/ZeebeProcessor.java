@@ -1,7 +1,6 @@
 package io.quarkiverse.zeebe;
 
 import static io.quarkiverse.zeebe.ZeebeDotNames.*;
-import static io.quarkiverse.zeebe.devservices.ZeebeDevServiceProcessor.PROP_ZEEBE_ENABLED;
 import static io.quarkus.deployment.annotations.ExecutionTime.RUNTIME_INIT;
 import static io.quarkus.deployment.annotations.ExecutionTime.STATIC_INIT;
 import static org.jboss.jandex.AnnotationTarget.Kind.METHOD;
@@ -70,6 +69,7 @@ public class ZeebeProcessor {
 
     private static final Logger log = LoggerFactory.getLogger(ZeebeProcessor.class);
 
+    private static final String PROP_ZEEBE_ENABLED = "camunda.client.zeebe.enabled";
     private static final String JAR_RESOURCE_PROTOCOL = "jar";
     private static final String FILE_RESOURCE_PROTOCOL = "file";
 
