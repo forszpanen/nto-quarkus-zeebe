@@ -34,7 +34,8 @@ import io.zeebe.containers.*;
 public class ZeebeDevServiceProcessor {
 
     private static final Logger log = Logger.getLogger(ZeebeDevServiceProcessor.class);
-    public static final String PROP_ZEEBE_GATEWAY_ADDRESS = "quarkus.zeebe.client.broker.gateway-address";
+    static final String PROP_ZEEBE_GATEWAY_ADDRESS = "quarkus.zeebe.client.broker.gateway-address";
+    public static final String PROP_ZEEBE_ENABLED = "camunda.client.zeebe.enabled";
     private static final String DEV_SERVICE_LABEL = "quarkus-dev-service-zeebe";
     public static final int DEFAULT_ZEEBE_PORT = ZeebePort.GATEWAY.getPort();
     private static final ContainerLocator zeebeContainerLocator = new ContainerLocator(DEV_SERVICE_LABEL, DEFAULT_ZEEBE_PORT);

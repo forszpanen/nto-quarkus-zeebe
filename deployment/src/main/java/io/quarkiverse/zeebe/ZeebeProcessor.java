@@ -1,7 +1,7 @@
 package io.quarkiverse.zeebe;
 
 import static io.quarkiverse.zeebe.ZeebeDotNames.*;
-import static io.quarkiverse.zeebe.devservices.ZeebeDevServiceProcessor.PROP_ZEEBE_GATEWAY_ADDRESS;
+import static io.quarkiverse.zeebe.devservices.ZeebeDevServiceProcessor.PROP_ZEEBE_ENABLED;
 import static io.quarkus.deployment.annotations.ExecutionTime.RUNTIME_INIT;
 import static io.quarkus.deployment.annotations.ExecutionTime.STATIC_INIT;
 import static org.jboss.jandex.AnnotationTarget.Kind.METHOD;
@@ -24,6 +24,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.jandex.*;
 import org.jboss.jandex.Type;
 import org.slf4j.Logger;
@@ -90,7 +91,8 @@ public class ZeebeProcessor {
 
         @Override
         public boolean getAsBoolean() {
-            return ConfigUtils.isPropertyPresent(PROP_ZEEBE_GATEWAY_ADDRESS);
+            return !ConfigUtils.isPropertyPresent(PROP_ZEEBE_ENABLED) ||
+                    ConfigProvider.getConfig().getConfigValue(PROP_ZEEBE_ENABLED).getValue().equals("true");
         }
     }
 
