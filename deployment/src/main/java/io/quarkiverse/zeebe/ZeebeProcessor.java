@@ -23,7 +23,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.jandex.*;
 import org.jboss.jandex.Type;
 import org.slf4j.Logger;
@@ -58,7 +57,6 @@ import io.quarkus.deployment.builditem.nativeimage.NativeImageResourceBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.metrics.MetricsCapabilityBuildItem;
 import io.quarkus.gizmo.*;
-import io.quarkus.runtime.configuration.ConfigUtils;
 import io.quarkus.runtime.metrics.MetricsFactory;
 import io.quarkus.runtime.util.HashUtil;
 import io.quarkus.smallrye.health.deployment.spi.HealthBuildItem;
@@ -69,7 +67,6 @@ public class ZeebeProcessor {
 
     private static final Logger log = LoggerFactory.getLogger(ZeebeProcessor.class);
 
-    private static final String PROP_ZEEBE_ENABLED = "camunda.client.zeebe.enabled";
     private static final String JAR_RESOURCE_PROTOCOL = "jar";
     private static final String FILE_RESOURCE_PROTOCOL = "file";
 
@@ -84,15 +81,6 @@ public class ZeebeProcessor {
         @Override
         public boolean getAsBoolean() {
             return config.tracing.enabled;
-        }
-    }
-
-    static class BrokerEnabled implements BooleanSupplier {
-
-        @Override
-        public boolean getAsBoolean() {
-            return !ConfigUtils.isPropertyPresent(PROP_ZEEBE_ENABLED) ||
-                    ConfigProvider.getConfig().getConfigValue(PROP_ZEEBE_ENABLED).getValue().equals("true");
         }
     }
 
@@ -306,7 +294,7 @@ public class ZeebeProcessor {
         ssl.produce(new ExtensionSslNativeSupportBuildItem(FEATURE_NAME));
     }
 
-    @BuildStep(onlyIf = BrokerEnabled.class)
+    @BuildStep
     void addHealthCheck(ZeebeBuildTimeConfig config, BuildProducer<HealthBuildItem> healthChecks) {
         healthChecks.produce(new HealthBuildItem(ZeebeHealthCheck.class.getName(), config.health.enabled));
         healthChecks.produce(new HealthBuildItem(ZeebeTopologyHealthCheck.class.getName(), config.health.enabled));
@@ -319,7 +307,7 @@ public class ZeebeProcessor {
         recorder.setResources(resources.getResources(), workers.getWorkers());
     }
 
-    @BuildStep(onlyIf = BrokerEnabled.class)
+    @BuildStep
     @Record(RUNTIME_INIT)
     void runtimeInitConfiguration(ZeebeRecorder recorder, ZeebeRuntimeConfig runtimeConfig) {
         recorder.init(runtimeConfig);
