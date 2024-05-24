@@ -8,6 +8,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.logging.Logger;
 
 import io.camunda.zeebe.client.ZeebeClient;
@@ -22,11 +23,13 @@ import io.quarkiverse.zeebe.runtime.tracing.TracingRecorder;
 import io.quarkiverse.zeebe.runtime.tracing.ZeebeTracing;
 import io.quarkus.arc.Arc;
 import io.quarkus.runtime.annotations.Recorder;
+import io.quarkus.runtime.configuration.ConfigUtils;
 
 @Recorder
 public class ZeebeRecorder {
 
     private static final Logger log = Logger.getLogger(ZeebeRecorder.class);
+    private static final String PROP_ZEEBE_ENABLED = "camunda.client.zeebe.enabled";
 
     /**
      * List of paths to the bpmn files in classpath
@@ -44,75 +47,78 @@ public class ZeebeRecorder {
      * @param config zeebe runtime configuration
      */
     public void init(ZeebeRuntimeConfig config) {
-        // client configuration
-        ZeebeClientService clientService = Arc.container().instance(ZeebeClientService.class).get();
-        ZeebeClient client = clientService.client();
+        if (!ConfigUtils.isPropertyPresent(PROP_ZEEBE_ENABLED) ||
+                ConfigProvider.getConfig().getConfigValue(PROP_ZEEBE_ENABLED).getValue().equals("true")) {
+            // client configuration
+            ZeebeClientService clientService = Arc.container().instance(ZeebeClientService.class).get();
+            ZeebeClient client = clientService.client();
 
-        // tracing configuration
-        if (config.client.tracing.attributes.isPresent()) {
-            List<String> attrs = config.client.tracing.attributes.get();
-            if (!attrs.isEmpty()) {
-                ZeebeTracing.setAttributes(attrs);
+            // tracing configuration
+            if (config.client.tracing.attributes.isPresent()) {
+                List<String> attrs = config.client.tracing.attributes.get();
+                if (!attrs.isEmpty()) {
+                    ZeebeTracing.setAttributes(attrs);
+                }
             }
-        }
 
-        // deploy resources
-        if (resources != null && !resources.isEmpty()) {
+            // deploy resources
+            if (resources != null && !resources.isEmpty()) {
 
-            ClassLoader cl = Thread.currentThread().getContextClassLoader();
+                ClassLoader cl = Thread.currentThread().getContextClassLoader();
 
-            DeployResourceCommandStep1 cmd = client.newDeployResourceCommand();
-            DeploymentEvent deploymentResult = resources
-                    .stream()
-                    .flatMap(name -> Stream.of(cl.getResource(name)))
-                    .filter(Objects::nonNull)
-                    .map(resource -> {
-                        try (InputStream inputStream = resource.openStream()) {
-                            return cmd.addResourceStream(inputStream, resource.getPath());
-                        } catch (IOException e) {
-                            throw new RuntimeException(e.getMessage());
+                DeployResourceCommandStep1 cmd = client.newDeployResourceCommand();
+                DeploymentEvent deploymentResult = resources
+                        .stream()
+                        .flatMap(name -> Stream.of(cl.getResource(name)))
+                        .filter(Objects::nonNull)
+                        .map(resource -> {
+                            try (InputStream inputStream = resource.openStream()) {
+                                return cmd.addResourceStream(inputStream, resource.getPath());
+                            } catch (IOException e) {
+                                throw new RuntimeException(e.getMessage());
+                            }
+                        })
+                        .filter(Objects::nonNull)
+                        .reduce((f, s) -> s)
+                        .orElseThrow(() -> new IllegalArgumentException("Requires at least one resource to deploy"))
+                        .send().join();
+
+                log.infof(
+                        "Deployed: %s",
+                        deploymentResult
+                                .getProcesses()
+                                .stream()
+                                .map(wf -> String.format("<%s:%d>", wf.getBpmnProcessId(), wf.getVersion()))
+                                .collect(Collectors.joining(",")));
+            }
+
+            // create job workers
+            if (workers != null && !workers.isEmpty()) {
+
+                JobWorkerExceptionHandler handler = Arc.container().instance(JobWorkerExceptionHandler.class).get();
+                MetricsRecorder metricsRecorder = Arc.container().instance(MetricsRecorder.class).get();
+                TracingRecorder tracingRecorder = Arc.container().instance(TracingRecorder.class).get();
+
+                Set<String> tracingVariables = null;
+                Collection<String> fields = tracingRecorder.fields();
+                if (fields != null && !fields.isEmpty()) {
+                    tracingVariables = new HashSet<>(fields);
+                }
+
+                for (JobWorkerMetadata meta : workers) {
+                    try {
+                        JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder = buildJobWorker(client, config.client, handler,
+                                meta, metricsRecorder, tracingRecorder, tracingVariables);
+                        if (builder != null) {
+                            clientService.openWorker(builder);
+                            log.infof("Starting worker %s.%s for job type %s", meta.declaringClassName, meta.methodName,
+                                    meta.workerValue.type);
                         }
-                    })
-                    .filter(Objects::nonNull)
-                    .reduce((f, s) -> s)
-                    .orElseThrow(() -> new IllegalArgumentException("Requires at least one resource to deploy"))
-                    .send().join();
-
-            log.infof(
-                    "Deployed: %s",
-                    deploymentResult
-                            .getProcesses()
-                            .stream()
-                            .map(wf -> String.format("<%s:%d>", wf.getBpmnProcessId(), wf.getVersion()))
-                            .collect(Collectors.joining(",")));
-        }
-
-        // create job workers
-        if (workers != null && !workers.isEmpty()) {
-
-            JobWorkerExceptionHandler handler = Arc.container().instance(JobWorkerExceptionHandler.class).get();
-            MetricsRecorder metricsRecorder = Arc.container().instance(MetricsRecorder.class).get();
-            TracingRecorder tracingRecorder = Arc.container().instance(TracingRecorder.class).get();
-
-            Set<String> tracingVariables = null;
-            Collection<String> fields = tracingRecorder.fields();
-            if (fields != null && !fields.isEmpty()) {
-                tracingVariables = new HashSet<>(fields);
-            }
-
-            for (JobWorkerMetadata meta : workers) {
-                try {
-                    JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder = buildJobWorker(client, config.client, handler,
-                            meta, metricsRecorder, tracingRecorder, tracingVariables);
-                    if (builder != null) {
-                        clientService.openWorker(builder);
-                        log.infof("Starting worker %s.%s for job type %s", meta.declaringClassName, meta.methodName,
-                                meta.workerValue.type);
+                    } catch (Exception e) {
+                        log.errorf(e, "Error opening worker for type %s with class %s.%s", meta.workerValue.type,
+                                meta.declaringClassName,
+                                meta.methodName);
                     }
-                } catch (Exception e) {
-                    log.errorf(e, "Error opening worker for type %s with class %s.%s", meta.workerValue.type,
-                            meta.declaringClassName,
-                            meta.methodName);
                 }
             }
         }
