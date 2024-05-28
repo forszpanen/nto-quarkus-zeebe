@@ -48,8 +48,11 @@ public class ZeebeClientService {
 
     @PreDestroy
     public void onStop() {
-        workers.forEach(JobWorker::close);
-        client.close();
+        if (!ConfigUtils.isPropertyPresent(PROP_ZEEBE_ENABLED) ||
+                ConfigProvider.getConfig().getConfigValue(PROP_ZEEBE_ENABLED).getValue().equals("true")) {
+            workers.forEach(JobWorker::close);
+            client.close();
+        }
     }
 
     @Produces
